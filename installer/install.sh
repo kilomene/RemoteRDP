@@ -21,8 +21,11 @@ log "RemoteRDP installer: xrdp over Tailscale"
 # 1. Install xrdp
 if ! dpkg -l xrdp 2>/dev/null | grep -q "^ii"; then
     log "installing xrdp..."
-    apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xrdp
+    # apt-get update may fail on broken third-party repos (e.g. Tailscale
+    # keyring); don't let that kill the install — try anyway.
+    apt-get update -qq 2>&1 | grep -v "tailscale" >&2 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xrdp \
+        || die "failed to install xrdp (check apt sources)"
 else
     log "xrdp already installed"
 fi
