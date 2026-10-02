@@ -141,7 +141,7 @@ write_xsession() {
         printf '%s\n' "$1" > "$USER_HOME/.xsession"
     fi
     chown "$SERVICE_USER:$SERVICE_USER" "$USER_HOME/.xsession"
-    chmod 644 "$USER_HOME/.xsession"
+    chmod 755 "$USER_HOME/.xsession"
 }
 
 if [ -n "$XSESSION" ]; then
