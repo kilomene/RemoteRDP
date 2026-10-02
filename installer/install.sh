@@ -46,8 +46,9 @@ fi
 # 2. Configure xrdp to listen on all interfaces (Tailscale provides security)
 #    Default port 3389 is fine.
 log "configuring xrdp..."
-# Ensure xrdp listens on 0.0.0.0:3389 (default, but be explicit)
-sed -i 's/^port=.*/port=3389/' /etc/xrdp/xrdp.ini 2>/dev/null || true
+# Ensure xrdp listens on 0.0.0.0:3389 — ONLY in the [Globals] section.
+# (Backend sections like [Xorg]/[Xvnc] use port=-1 for auto-assign; do NOT touch those.)
+sed -i '/^\[Globals\]/,/^\[/ s/^[[:space:]]*port=.*/port=3389/' /etc/xrdp/xrdp.ini 2>/dev/null || true
 # Fix "error - no ip set" / "Error connecting to user session":
 # the [Xorg] backend section must define ip=127.0.0.1 and code=20.
 # Set them with sed restricted to the [Xorg] section, adding if missing.
@@ -67,6 +68,20 @@ if grep -q '^\[Xorg\]' /etc/xrdp/xrdp.ini 2>/dev/null; then
 else
     warn "[Xorg] section not found in xrdp.ini"
 fi
+# Repair damage from pre-v1.0.9 installers: backend [Xorg]/[Xvnc] port= must be -1
+# (auto-assign), not 3389. Only fix if wrong.
+for sect in Xorg Xvnc; do
+    if awk -v s="$sect" '
+        $0 == "["s"]" { f=1; next }
+        /^\[/ { f=0 }
+        f && /^[[:space:]]*port=3389/ { bad=1 }
+        END { exit !bad }
+    ' /etc/xrdp/xrdp.ini 2>/dev/null; then
+        log "repairing [$sect] port=3389 -> port=-1 (damaged by older installer)"
+        # Use a different delimiter to avoid confusion; restrict to section range
+        sed -i "/^\[$sect\]/,/^\[/ s/^[[:space:]]*port=.*/port=-1/" /etc/xrdp/xrdp.ini
+    fi
+done
 
 # 3. Set up the desktop session for xrdp
 #    xrdp needs a window manager. Use a lightweight one if none exists.
