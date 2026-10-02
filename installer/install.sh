@@ -152,9 +152,25 @@ if [ "$restarted" = 1 ]; then
 fi
 KEEPALIVE_EOF
 chmod +x /usr/local/bin/xrdp-keepalive
-# Install cron job (idempotent: remove old, add new)
-(crontab -l 2>/dev/null | grep -v "xrdp-keepalive"; echo "* * * * * /usr/local/bin/xrdp-keepalive") | crontab -
-log "keepalive installed (cron, every minute)"
+# Install cron if missing (minimal containers often lack it)
+if ! have crontab; then
+    log "installing cron..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cron \
+        || warn "could not install cron; keepalive disabled"
+fi
+if have crontab; then
+    # Start cron daemon (no systemd on this VM)
+    if ! pgrep -f "/usr/sbin/cron" >/dev/null 2>&1; then
+        log "starting cron daemon..."
+        /usr/sbin/cron 2>/dev/null || service cron start 2>/dev/null || true
+        sleep 1
+    fi
+    # Install cron job (idempotent: remove old, add new)
+    (crontab -l 2>/dev/null | grep -v "xrdp-keepalive"; echo "* * * * * /usr/local/bin/xrdp-keepalive") | crontab -
+    log "keepalive installed (cron, every minute)"
+else
+    warn "crontab not available; xrdp auto-restart disabled"
+fi
 
 # 7. Tailscale IP
 TS_IP=""
