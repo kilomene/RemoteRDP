@@ -21,9 +21,16 @@ log "RemoteRDP installer: xrdp over Tailscale"
 # 1. Install xrdp
 if ! dpkg -l xrdp 2>/dev/null | grep -q "^ii"; then
     log "installing xrdp..."
-    # apt-get update may fail on broken third-party repos (e.g. Tailscale
-    # keyring); don't let that kill the install — try anyway.
-    apt-get update -qq 2>&1 | grep -v "tailscale" >&2 || true
+    # Repair broken Tailscale keyring if missing (breaks apt-get update)
+    if [ ! -f /usr/share/keyrings/tailscale-archive-keyring.gpg ]; then
+        log "repairing missing Tailscale keyring..."
+        mkdir -p /usr/share/keyrings
+        curl -fsSL https://pkgs.tailscale.com/stable/debian/tailscale-archive-keyring.gpg \
+            -o /usr/share/keyrings/tailscale-archive-keyring.gpg 2>/dev/null || \
+        curl -fsSL https://pkgs.tailscale.com/stable/debian/tailscale.key \
+            | gpg --dearmor -o /usr/share/keyrings/tailscale-archive-keyring.gpg 2>/dev/null || true
+    fi
+    apt-get update -qq 2>&1 | tail -5 >&2 || true
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xrdp \
         || die "failed to install xrdp (check apt sources)"
 else
