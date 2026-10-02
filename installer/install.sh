@@ -49,22 +49,18 @@ log "configuring xrdp..."
 # Ensure xrdp listens on 0.0.0.0:3389 — ONLY in the [Globals] section.
 # (Backend sections like [Xorg]/[Xvnc] use port=-1 for auto-assign; do NOT touch those.)
 sed -i '/^\[Globals\]/,/^\[/ s/^[[:space:]]*port=.*/port=3389/' /etc/xrdp/xrdp.ini 2>/dev/null || true
-# Fix "error - no ip set" / "Error connecting to user session":
-# the [Xorg] backend section must define ip=127.0.0.1 and code=20.
-# Set them with sed restricted to the [Xorg] section, adding if missing.
+# The [Xorg] backend (libxup.so) connects via Unix socket, not TCP.
+# Do NOT set ip= in [Xorg] — xrdp warns "'ip' is not needed for this connection".
+# Ensure code=20 is set (required), and remove any ip= line if present.
 if grep -q '^\[Xorg\]' /etc/xrdp/xrdp.ini 2>/dev/null; then
-    # Replace existing ip=/code= lines within [Xorg] section
-    sed -i '/^\[Xorg\]/,/^\[/ s/^[[:space:]]*ip=.*/ip=127.0.0.1/' /etc/xrdp/xrdp.ini
+    # Remove ip= from [Xorg] section (causes "not needed" warning / connection failure)
+    sed -i '/^\[Xorg\]/,/^\[/ s/^[[:space:]]*ip=.*//' /etc/xrdp/xrdp.ini
+    # Ensure code=20 is set
     sed -i '/^\[Xorg\]/,/^\[/ s/^[[:space:]]*code=.*/code=20/' /etc/xrdp/xrdp.ini
-    # Add them if still missing from the section
-    awk '/^\[Xorg\]/{f=1;next} /^\[/{f=0} f && /^[[:space:]]*ip=/{ip=1} f && /^[[:space:]]*code=/{co=1} END{exit !(ip && co)}' /etc/xrdp/xrdp.ini || {
-        # At least one is missing; insert missing ones after [Xorg] header
-        awk '/^\[Xorg\]/{f=1;next} /^\[/{f=0} f && /^[[:space:]]*ip=/{ip=1} END{exit !ip}' /etc/xrdp/xrdp.ini || \
-            sed -i '/^\[Xorg\]/a ip=127.0.0.1' /etc/xrdp/xrdp.ini
-        awk '/^\[Xorg\]/{f=1;next} /^\[/{f=0} f && /^[[:space:]]*code=/{co=1} END{exit !co}' /etc/xrdp/xrdp.ini || \
-            sed -i '/^\[Xorg\]/a code=20' /etc/xrdp/xrdp.ini
-    }
-    log "xrdp.ini [Xorg]: ip=127.0.0.1, code=20 ensured"
+    awk '/^\[Xorg\]/{f=1;next} /^\[/{f=0} f && /^[[:space:]]*code=/{co=1} END{exit !co}' /etc/xrdp/xrdp.ini || \
+        sed -i '/^\[Xorg\]/a code=20' /etc/xrdp/xrdp.ini
+    # Clean up any blank lines left by ip= removal within [Xorg]
+    log "xrdp.ini [Xorg]: ip= removed, code=20 ensured"
 else
     warn "[Xorg] section not found in xrdp.ini"
 fi
