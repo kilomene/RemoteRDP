@@ -102,7 +102,40 @@ else
     die "xrdp failed to start"
 fi
 
-# 6. Tailscale IP
+# 6. Auto-restart keepalive (no systemd on this VM, so use cron).
+#    Every minute: if xrdp or xrdp-sesman died, restart them.
+log "setting up xrdp auto-restart keepalive..."
+cat > /usr/local/bin/xrdp-keepalive <<'KEEPALIVE_EOF'
+#!/usr/bin/env bash
+# RemoteRDP keepalive: restart xrdp if it crashed. Runs from cron every minute.
+LOG="/var/log/remote/xrdp-keepalive.log"
+mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+restarted=0
+if ! pgrep -f "/usr/sbin/xrdp$" >/dev/null 2>&1; then
+    echo "$(date -Is) xrdp down — restarting" >> "$LOG"
+    /usr/sbin/xrdp >> "$LOG" 2>&1 &
+    restarted=1
+fi
+if ! pgrep -f "xrdp-sesman" >/dev/null 2>&1; then
+    echo "$(date -Is) xrdp-sesman down — restarting" >> "$LOG"
+    /usr/sbin/xrdp-sesman >> "$LOG" 2>&1 &
+    restarted=1
+fi
+if [ "$restarted" = 1 ]; then
+    sleep 2
+    if pgrep -f "/usr/sbin/xrdp$" >/dev/null 2>&1; then
+        echo "$(date -Is) xrdp restored" >> "$LOG"
+    else
+        echo "$(date -Is) xrdp FAILED to restart" >> "$LOG"
+    fi
+fi
+KEEPALIVE_EOF
+chmod +x /usr/local/bin/xrdp-keepalive
+# Install cron job (idempotent: remove old, add new)
+(crontab -l 2>/dev/null | grep -v "xrdp-keepalive"; echo "* * * * * /usr/local/bin/xrdp-keepalive") | crontab -
+log "keepalive installed (cron, every minute)"
+
+# 7. Tailscale IP
 TS_IP=""
 if have tailscale; then
     TS_IP=$(tailscale ip -4 2>/dev/null | head -1 || true)
