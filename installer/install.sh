@@ -65,8 +65,13 @@ RDP_PASSWORD=""
 pw_status="$(passwd -S "$SERVICE_USER" 2>/dev/null | awk '{print $2}' || echo "?")"
 if [ "$pw_status" = "L" ] || [ "$pw_status" = "NP" ] || [ -z "$pw_status" ] || [ "$pw_status" = "?" ]; then
     log "no password set for $SERVICE_USER — generating one for RDP..."
-    # 16-char alphanumeric, no ambiguous chars
+    # 16-char alphanumeric, no ambiguous chars.
+    # NOTE: tr|head triggers SIGPIPE (exit 141); with set -e+pipefail that
+    # would kill the installer silently. Disable pipefail for this line.
+    set +o pipefail
     RDP_PASSWORD="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)"
+    set -o pipefail
+    [ -n "$RDP_PASSWORD" ] || die "failed to generate password"
     echo "$SERVICE_USER:$RDP_PASSWORD" | chpasswd \
         || die "failed to set password for $SERVICE_USER"
     log "password set for $SERVICE_USER"
