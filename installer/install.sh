@@ -153,6 +153,29 @@ else
     write_xsession "startxfce4"
 fi
 
+# 3b. Ensure /etc/xrdp/startwm.sh delegates to ~/.xsession.
+#     sesman runs startwm.sh (not ~/.xsession directly). If the distro's
+#     startwm.sh doesn't exec the user script, you get a black screen.
+#     Overwrite with a known-good version.
+log "installing startwm.sh that honors ~/.xsession..."
+cat > /etc/xrdp/startwm.sh <<'STARTWM_EOF'
+#!/bin/sh
+# RemoteRDP startwm.sh: launch the user's desktop for xrdp sessions.
+# Unset inherited env that breaks remote sessions, then exec ~/.xsession
+# if present, else fall back to a basic X session.
+unset DBUS_SESSION_BUS_ADDRESS
+unset XDG_RUNTIME_DIR
+if [ -f "$HOME/.xsession" ]; then
+    exec "$HOME/.xsession"
+elif [ -x /etc/X11/Xsession ]; then
+    exec /etc/X11/Xsession
+else
+    exec /bin/sh
+fi
+STARTWM_EOF
+chmod 755 /etc/xrdp/startwm.sh
+log "startwm.sh installed"
+
 # 4. Add xrdp user to ssl-cert group (needed for the private key)
 adduser xrdp ssl-cert 2>/dev/null || true
 
