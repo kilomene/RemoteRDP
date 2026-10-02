@@ -43,6 +43,21 @@ if [ -z "$USER_HOME" ] || [ ! -d "$USER_HOME" ]; then
     die "cannot find home for user $SERVICE_USER"
 fi
 
+# 3a. Ensure the user has a password (xrdp authenticates against it).
+#     If locked or unset, generate a secure random one and display it.
+RDP_PASSWORD=""
+pw_status="$(passwd -S "$SERVICE_USER" 2>/dev/null | awk '{print $2}' || echo "?")"
+if [ "$pw_status" = "L" ] || [ "$pw_status" = "NP" ] || [ -z "$pw_status" ] || [ "$pw_status" = "?" ]; then
+    log "no password set for $SERVICE_USER — generating one for RDP..."
+    # 16-char alphanumeric, no ambiguous chars
+    RDP_PASSWORD="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)"
+    echo "$SERVICE_USER:$RDP_PASSWORD" | chpasswd \
+        || die "failed to set password for $SERVICE_USER"
+    log "password set for $SERVICE_USER"
+else
+    log "user $SERVICE_USER already has a password"
+fi
+
 # Create .xsession to start a desktop environment via xrdp
 # Try common desktops in order of preference
 XSESSION=""
@@ -94,12 +109,14 @@ if have tailscale; then
 fi
 
 # ---- summary ----------------------------------------------------------------
-cat >&2 <<EOF
+if [ -n "$RDP_PASSWORD" ]; then
+    cat >&2 <<EOF
 
 ================ RemoteRDP ready ================
 RDP port:     3389
 Tailscale IP: ${TS_IP:-unknown}
-Username:     $SERVICE_USER (your Linux password)
+Username:     $SERVICE_USER
+Password:     $RDP_PASSWORD   <-- SAVE THIS (change with: sudo passwd $SERVICE_USER)
 ================================================
 
 Connect from any RDP client:
@@ -108,3 +125,19 @@ Connect from any RDP client:
   - Address: ${TS_IP:-<tailscale-ip>}:3389
 
 EOF
+else
+    cat >&2 <<EOF
+
+================ RemoteRDP ready ================
+RDP port:     3389
+Tailscale IP: ${TS_IP:-unknown}
+Username:     $SERVICE_USER (your existing Linux password)
+================================================
+
+Connect from any RDP client:
+  - Microsoft Remote Desktop (Android/iOS/Windows/Mac)
+  - Windows: mstsc
+  - Address: ${TS_IP:-<tailscale-ip>}:3389
+
+EOF
+fi
