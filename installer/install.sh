@@ -113,27 +113,48 @@ else
     log "user $SERVICE_USER already has a password"
 fi
 
-# Create .xsession to start a desktop environment via xrdp
-# Try common desktops in order of preference
+# Create .xsession to start a desktop environment via xrdp.
+# NOTE: use the *session starter* (startxfce4), not the session manager binary
+# (xfce4-session) — the latter gives a black screen. Wrap in dbus-run-session
+# for a clean session bus.
+# Try common desktops in order of preference (starter -> fallback binary).
 XSESSION=""
-for wm in "xfce4-session" "mate-session" "gnome-session" "startlxde" "openbox-session"; do
-    if have "$wm"; then
-        XSESSION="$wm"
+for pair in "startxfce4:xfce4-session" "mate-session:mate-session" "gnome-session:gnome-session" "startlxde:lxsession" "openbox-session:openbox-session"; do
+    starter="${pair%%:*}"
+    binary="${pair##*:}"
+    if have "$starter"; then
+        XSESSION="$starter"
+        break
+    elif have "$binary"; then
+        XSESSION="$binary"
         break
     fi
 done
 
+# dbus-x11 is required for the session bus; install if missing (fixes black screen)
+if ! dpkg -l dbus-x11 2>/dev/null | grep -q "^ii"; then
+    log "installing dbus-x11 (required for desktop session)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dbus-x11 || warn "could not install dbus-x11"
+fi
+
+write_xsession() {
+    # $1 = session command (e.g. startxfce4)
+    if have dbus-run-session; then
+        printf 'exec dbus-run-session -- %s\n' "$1" > "$USER_HOME/.xsession"
+    else
+        printf '%s\n' "$1" > "$USER_HOME/.xsession"
+    fi
+    chown "$SERVICE_USER:$SERVICE_USER" "$USER_HOME/.xsession"
+    chmod 644 "$USER_HOME/.xsession"
+}
+
 if [ -n "$XSESSION" ]; then
     log "using desktop: $XSESSION"
-    echo "$XSESSION" > "$USER_HOME/.xsession"
-    chown "$SERVICE_USER:$SERVICE_USER" "$USER_HOME/.xsession"
-    chmod 644 "$USER_HOME/.xsession"
+    write_xsession "$XSESSION"
 else
     warn "no desktop environment found; installing xfce4 (lightweight)..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xfce4 xfce4-terminal
-    echo "xfce4-session" > "$USER_HOME/.xsession"
-    chown "$SERVICE_USER:$SERVICE_USER" "$USER_HOME/.xsession"
-    chmod 644 "$USER_HOME/.xsession"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xfce4 xfce4-terminal dbus-x11
+    write_xsession "startxfce4"
 fi
 
 # 4. Add xrdp user to ssl-cert group (needed for the private key)
